@@ -3,14 +3,15 @@ import retro
 import time
 import numpy as np
 import tensorflow as tf
-env = retro.make('GalagaDemonsOfDeath-Nes', '1Player.Level1')
+env = retro.make(game='GalagaDemonsOfDeath-Nes', state='1Player.Level1', record='.')
 
 GAMMA = 0.999 # discount factor, between 0 and 1, used in Bellman eq
 INITIAL_EPSILON = 1 # starting value of epsilon, used in exploration
 FINAL_EPSILON = 0.01 # final value of epsilon
 EPSILON_DECAY_STEPS = 50 # decay period
+FINAL_EPISODE = 300
 
-MAX_STEPS = 1000
+MAX_STEPS = 15000
 
 STATE_DIM_1 = env.observation_space.shape[0]
 STATE_DIM_2 = env.observation_space.shape[1]
@@ -20,7 +21,10 @@ STATE_DIM_3 = env.observation_space.shape[2]
 ACTION_OUTPUT_DIM = env.action_space.n
 ACTION_DIM = 6
 
-LIVES_PENALTY = 1000
+LIFE_LOSS_PENALTY = 1.5
+GAME_OVER_PENALTY = 2.5
+SURVIVAL_REWARD = 2.5
+SCORE_MODIFIER = 150
 
 epsilon = INITIAL_EPSILON
 
@@ -32,48 +36,67 @@ action_in = tf.placeholder("float", [None, ACTION_DIM])
 target_in = tf.placeholder("float", [None])
 
 # --------- network hyperparameters ----------
-fc1_units = 40
 act = tf.tanh
 init = tf.glorot_uniform_initializer()
 lr=0.004
-FILTER_SIZE = 100
-FILTERS = 2
-POOL_FILTER_SIZE = 50
-POOL_STRIDE = 5
+
+FILTER_SIZE1 = 16
+FILTERS1 = 16
+FILTER_STRIDE1 = 4
+
+FILTER_SIZE2 = 8
+FILTERS2 = 32
+FILTER_STRIDE2 = 2
+
+POOL_FILTER_SIZE = 8
+POOL_STRIDE = 2
+
+fc1_units = 256
+
 # --------------------------------------------
 with tf.variable_scope('primary'):
+    print("state_in = " + str(state_in.shape))
+    conv1 = tf.layers.conv2d(
+        inputs=state_in,
+        filters=FILTERS1,
+        kernel_size=FILTER_SIZE1,
+        activation=tf.nn.relu,
+        padding='VALID',
+        strides=FILTER_STRIDE1
+    )
+    print("conv1 = " + str(conv1.shape))
 
-    # conv = tf.layers.conv2d(
-    #     inputs=state_in,
-    #     filters=FILTERS,
-    #     kernel_size=FILTER_SIZE,
-    #     activation=tf.nn.relu,
-    #     padding='SAME',
-    #     reuse=None
-    # )
-    #print("conv = " + str(conv.shape))
+    conv2 = tf.layers.conv2d(
+        inputs=conv1,
+        filters=FILTERS2,
+        kernel_size=FILTER_SIZE2,
+        activation=tf.nn.relu,
+        padding='VALID',
+        strides=FILTER_STRIDE2
+    )
+    print("conv2 = " + str(conv2.shape))
 
-    fc1 = tf.layers.dense(state_in, fc1_units, activation=act, kernel_initializer=init)
+    pooled = tf.nn.max_pool(
+        value=conv1,
+        ksize=[1, POOL_FILTER_SIZE, POOL_FILTER_SIZE, 1],
+        strides=[1, POOL_STRIDE, POOL_STRIDE, 1],
+        padding='SAME'
+        )
+    print("pooled = " + str(pooled.shape))
     # fc2 = tf.layers.dense(fc1, fc2_units, activation=act, kernel_initializer=init)
     # fc3 = tf.layers.dense(fc2, fc2_units, activation=tf.nn.relu, kernel_initializer=tf.truncated_normal_initializer(stddev=0.1))
 
-    # pooled = tf.nn.max_pool(
-    #     value=conv,
-    #     ksize=[1, POOL_FILTER_SIZE, POOL_FILTER_SIZE, 1],
-    #     strides=[1, POOL_STRIDE, POOL_STRIDE, 1],
-    #     padding='SAME'
-    #     )
+    done_conv = tf.layers.flatten(pooled)
+    # done_fc1 = tf.reshape(tensor=fc1, shape= [-1, STATE_DIM_1 * STATE_DIM_2 * fc1_units])
 
-    # done_conv = tf.reshape(tensor=pooled, shape=[-1, (round(STATE_DIM_1/POOL_STRIDE) * round(STATE_DIM_2/POOL_STRIDE) * FILTERS)])
-    done_fc1 = tf.reshape(tensor=fc1, shape= [-1, STATE_DIM_1 * STATE_DIM_2 * fc1_units])
-
+    fc1 = tf.layers.dense(done_conv, fc1_units, activation=act, kernel_initializer=init)
     #print("fc1 = " + str(fc1.shape))
 
     # TODO: Network outputs
     # output a q-value for EACH possible action, rank-1 tensor of length ACTION_DIM
 
     #q_values = tf.layers.dense(done_conv, ACTION_DIM, kernel_initializer=init) # linear activation
-    q_values = tf.layers.dense(done_fc1, ACTION_DIM, kernel_initializer=init) # linear activation
+    q_values = tf.layers.dense(fc1, ACTION_DIM, kernel_initializer=init) # linear activation
 
     # extract the q-value of the action in action_in
     # by using action_in as a mask
@@ -83,8 +106,6 @@ with tf.variable_scope('primary'):
     # print("q_values = " + str(q_values.get_shape()))
     # print("action_bool = " + str(action_bool.get_shape()))
     q_action = tf.reduce_sum(tf.multiply(action_bool, q_values), reduction_indices=1)
-
-    # action_chosen = tf.argmax(q_action)
 
     # TODO: Loss/Optimizer Definition
     # should be a function of target_in and q_action
@@ -105,22 +126,27 @@ def explore(state, epsilon):
     take using e-greedy exploration based on the current q-value estimates.
     """
 
+
+    # print(Q_estimates)
+    # print(np.argmax(Q_estimates))
+    # print()   
+
     if random.random() <= epsilon:
         action = random.randint(0, ACTION_DIM - 1)
     else:
         Q_estimates = q_values.eval(feed_dict={
-        state_in: [state]
-        })
+            state_in: [state]
+            })
         action = np.argmax(Q_estimates)
 
     one_hot_action = np.zeros(ACTION_DIM)
     one_hot_action[action] = 1
     return one_hot_action
 
-BATCH_SIZE = 20
-MAX_MEM_SIZE = 100 # WARNING prob want this to be smaller to be effective
+BATCH_SIZE = 64
+MAX_MEM_SIZE = 5000 # WARNING prob want this to be smaller to be effective
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
-UPDATE_FREQ = 4 # TODO tune this for higher to make more stable
+UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
 
 memory = []
 # state is a tuple of (state, action, reward, next_state)
@@ -133,51 +159,57 @@ def get_batch_from_memory(batch_size):
     sample = random.sample(memory, batch_size)            
     return sample
 
-attempt_num = 0
-
-while epsilon > 0.0001:
+saver = tf.train.Saver()
+episode = 0
+while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
     t = 0
     done = False
     overall_score = 0
     lives = 2
-    attempt_num += 1
 
-    if epsilon > FINAL_EPSILON and attempt_num != 1:
+    if epsilon > FINAL_EPSILON and episode != 0:
             epsilon -= epsilon / EPSILON_DECAY_STEPS
 
     state = env.reset()
 
-    while t < MAX_STEPS and not done:
+    while t <= MAX_STEPS and not done:
+        env.render()
         t += 1
-        #env.render()
-        #print("attempt = " + str(attempt_num) + " t = " + str(t))
-        
         action = explore(state, epsilon)
         action_input = np.array(list(format(np.argmax(action), '0' + str(ACTION_OUTPUT_DIM) +'b')), dtype=np.float32)
+        # print("action = " + str(action))
+        print("action-input = " + str(action_input))
+        time.sleep(10)
+        # print()
         next_state, _, done, info = env.step(action_input)
+
+        reward = (info['score'] - overall_score)/SCORE_MODIFIER
+        overall_score = info['score']
 
         if done:
             next_state = None
-            print("Done")
+            reward -= GAME_OVER_PENALTY
 
-        reward = info['score'] - overall_score
-        overall_score = info['score']
-        #if info['lives'] != lives:
-        #   reward = reward + (info['lives'] - lives) * LIVES_PENALTY
-        #   lives = info['lives']    
+        if t == MAX_STEPS:
+            next_state = None
+            reward += SURVIVAL_REWARD
+
+        if info['lives'] != lives:
+          reward = reward + (info['lives'] - lives) * LIFE_LOSS_PENALTY
+          lives = info['lives']    
         add_step_to_memory((state, action, reward, next_state))
 
         # perform training update after collecting some experience
         if (t != 0 and len(memory) > BATCH_SIZE) and (done or (t % UPDATE_FREQ == 0)):
-
+            with open("log.txt", 'a') as log:
+                log.write("attempt = " + str(episode) + " t = " + str(t) + '\n')
             # sample random minibatch of transitions
             batch = get_batch_from_memory(BATCH_SIZE)
-
             batch_states = np.reshape(np.array([ x[0] for x in batch ]), [BATCH_SIZE, STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
             batch_actions = np.reshape(np.array([ x[1] for x in batch ]), [BATCH_SIZE, ACTION_DIM])
             batch_rewards = np.reshape(np.array([ x[2] for x in batch ]), [BATCH_SIZE, 1])
-            batch_nexts = np.reshape(np.array([(np.zeros(STATE_DIM)
-                                 if val[3] is None else val[3]) for val in batch ]), [BATCH_SIZE, STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
+            batch_nexts = np.reshape(np.array([(np.zeros([STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
+                                 if x[3] is None else x[3]) for x in batch ]), [BATCH_SIZE, STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
 
             curr_q_values = q_values.eval(feed_dict={
                 state_in: batch_states
@@ -187,15 +219,15 @@ while epsilon > 0.0001:
                  state_in: batch_nexts
             })
 
-            next_q_vals_primary = q_values.eval(feed_dict={
-                state_in: batch_nexts
-            })
-
             # prepare array inputs needed to optimize
             targets = np.zeros(BATCH_SIZE)
 
             for i, sample in enumerate(batch):
                 s_state, s_action, s_reward, s_next = sample[0], sample[1], sample[2], sample[3]
+                print(t)
+                print("s_reward = " + str(s_reward))
+                print("next_q_max = " + str(next_state_q_values[i]))
+                print()
 
                 if s_next is None:
                     targets[i] = s_reward
@@ -204,7 +236,7 @@ while epsilon > 0.0001:
 
             # Do one training step
             session.run([optimizer], feed_dict={
-                target_in: targets, # ERROR this shape might be weird if you use commented out version
+                target_in: targets,
                 action_in: batch_actions,
                 state_in: batch_states
             })
@@ -212,6 +244,11 @@ while epsilon > 0.0001:
         # Update
         state = next_state
 
-    print("attempt: %d, score: %d" % (attempt_num, overall_score))
+    with open("log.txt", 'a') as log:
+        log.write("attempt: %d, score: %d, epsilon: %.2lf\n" % (episode, overall_score, epsilon))
+        if episode % 5 == 0:
+            save_path = saver.save(session, "./models/model.ckpt")
+            log.write("Model Saved: episode %d\n" % (episode))
+    episode += 1
 
 env.close()
