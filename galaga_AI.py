@@ -141,7 +141,7 @@ def explore(state, epsilon):
     return one_hot_action
 
 BATCH_SIZE = 64
-MAX_MEM_SIZE = 100 # WARNING prob want this to be smaller to be effective
+MAX_MEM_SIZE = 20000 # WARNING prob want this to be smaller to be effective
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
 UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
 
