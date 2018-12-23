@@ -8,7 +8,7 @@ env = retro.make(game='GalagaDemonsOfDeath-Nes', state='1Player.Level1', record=
 GAMMA = 0.999 # discount factor, between 0 and 1, used in Bellman eq
 INITIAL_EPSILON = 1 # starting value of epsilon, used in exploration
 FINAL_EPSILON = 0.01 # final value of epsilon
-EPSILON_DECAY_STEPS = 50 # decay period
+EPSILON_DECAY_STEPS = 75 # decay period
 FINAL_EPISODE = 300
 
 MAX_STEPS = 15000
@@ -77,7 +77,7 @@ with tf.variable_scope('primary'):
     print("conv2 = " + str(conv2.shape))
 
     pooled = tf.nn.max_pool(
-        value=conv1,
+        value=conv2,
         ksize=[1, POOL_FILTER_SIZE, POOL_FILTER_SIZE, 1],
         strides=[1, POOL_STRIDE, POOL_STRIDE, 1],
         padding='SAME'
@@ -137,6 +137,8 @@ def explore(state, epsilon):
         Q_estimates = q_values.eval(feed_dict={
             state_in: [state]
             })
+        with open("log.txt", 'a') as log:
+            log.write(str(Q_estimates) + '\n')
         action = np.argmax(Q_estimates)
 
     one_hot_action = np.zeros(ACTION_DIM)
@@ -144,15 +146,21 @@ def explore(state, epsilon):
     return one_hot_action
 
 BATCH_SIZE = 64
-MAX_MEM_SIZE = 5000 # WARNING prob want this to be smaller to be effective
+MAX_MEM_SIZE = 50000 # WARNING prob want this to be smaller to be effective
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
 UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
 
 memory = []
+# save_scoring = [0] * MAX_MEM_SIZE
 # state is a tuple of (state, action, reward, next_state)
 def add_step_to_memory(state):
     memory.append(state)
     if(len(memory) > MAX_MEM_SIZE):
+        # to_remove = random.randint(0, MAX_MEM_SIZE - 1)
+        # while (memory[to_remove][2] != 0 and save_scoring[to_remove] == 0):
+        #     save_scoring[to_remove] = 1
+        #     to_remove = random.randint(0, MAX_MEM_SIZE - 1)
+        # memory.pop(to_remove)
         memory.pop(0)
 
 def get_batch_from_memory(batch_size):
@@ -173,13 +181,13 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
     state = env.reset()
 
     while t <= MAX_STEPS and not done:
-        env.render()
+        #env.render()
         t += 1
         action = explore(state, epsilon)
         action_input = np.array(list(format(np.argmax(action), '0' + str(ACTION_OUTPUT_DIM) +'b')), dtype=np.float32)
         # print("action = " + str(action))
-        print("action-input = " + str(action_input))
-        time.sleep(10)
+        # print("action-input = " + str(action_input))
+        #time.sleep(10)
         # print()
         next_state, _, done, info = env.step(action_input)
 
@@ -191,7 +199,7 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
             reward -= GAME_OVER_PENALTY
 
         if t == MAX_STEPS:
-            next_state = None
+            # next_state = None
             reward += SURVIVAL_REWARD
 
         if info['lives'] != lives:
@@ -224,10 +232,10 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
 
             for i, sample in enumerate(batch):
                 s_state, s_action, s_reward, s_next = sample[0], sample[1], sample[2], sample[3]
-                print(t)
-                print("s_reward = " + str(s_reward))
-                print("next_q_max = " + str(next_state_q_values[i]))
-                print()
+                #print(t)
+                #print("s_reward = " + str(s_reward))
+                #print("next_q_max = " + str(next_state_q_values[i]))
+                #print()
 
                 if s_next is None:
                     targets[i] = s_reward
@@ -247,7 +255,7 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
     with open("log.txt", 'a') as log:
         log.write("attempt: %d, score: %d, epsilon: %.2lf\n" % (episode, overall_score, epsilon))
         if episode % 5 == 0:
-            save_path = saver.save(session, "./models/model.ckpt")
+            save_path = saver.save(session, "./models/model_" + str(episode) +".ckpt")
             log.write("Model Saved: episode %d\n" % (episode))
     episode += 1
 

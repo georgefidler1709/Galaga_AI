@@ -1,7 +1,7 @@
 import retro
 import time
 
-movie = retro.Movie('GalagaDemonsOfDeath-Nes-1Player.Level1-000116.bk2')
+movie = retro.Movie('GalagaDemonsOfDeath-Nes-1Player.Level1-000079.bk2')
 movie.step()
 
 env = retro.make(game=movie.get_game(), state=None, use_restricted_actions=retro.Actions.ALL, players=movie.players)
@@ -15,4 +15,4 @@ while movie.step():
             keys.append(movie.get_key(i, p))
     _obs, _rew, _done, _info = env.step(keys)
     env.render()
-#    time.sleep(0.01)
+    time.sleep(0.01)
