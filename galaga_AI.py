@@ -11,7 +11,7 @@ FINAL_EPSILON = 0.01 # final value of epsilon
 EPSILON_DECAY_STEPS = 75 # decay period
 FINAL_EPISODE = 300
 
-MAX_STEPS = 15000
+MAX_STEPS = 5000
 
 STATE_DIM_1 = env.observation_space.shape[0]
 STATE_DIM_2 = env.observation_space.shape[1]
@@ -141,28 +141,32 @@ def explore(state, epsilon):
     return one_hot_action
 
 BATCH_SIZE = 64
-MAX_MEM_SIZE = 20000 # WARNING prob want this to be smaller to be effective
+MAX_MEM_SIZE = 30000 # WARNING prob want this to be smaller to be effective
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
 UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
 
 memory = []
-save_scoring = [0] * MAX_MEM_SIZE
+#save_scoring = [0] * MAX_MEM_SIZE
 # state is a tuple of (state, action, reward, next_state)
 def add_step_to_memory(state):
     memory.append(state)
     if(len(memory) > MAX_MEM_SIZE):
-        to_remove = random.randint(0, MAX_MEM_SIZE - 1)
-        while (memory[to_remove][2] != 0 and save_scoring[to_remove] == 0):
-            save_scoring[to_remove] = 1
-            to_remove = random.randint(0, MAX_MEM_SIZE - 1)
-        save_scoring[to_remove] = 0
-        memory.pop(to_remove)
+        # to_remove = random.randint(0, MAX_MEM_SIZE - 1)
+        # while (memory[to_remove][2] != 0 and save_scoring[to_remove] == 0):
+        #     save_scoring[to_remove] = 1
+        #     to_remove = random.randint(0, MAX_MEM_SIZE - 1)
+        # save_scoring[to_remove] = 0
+        # memory.pop(to_remove)
+        memory.pop(0)
 
 def get_batch_from_memory(batch_size):
     sample = random.sample(memory, batch_size)            
     return sample
 
 saver = tf.train.Saver()
+
+avg_reward = 0
+tot_reward = 0
 episode = 0
 while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
     t = 0
@@ -189,9 +193,14 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
         if done:
             next_state = None
 
+        # reward based solely on final score achieved in this episode
         if done or t == MAX_STEPS:
             # next_state = None
-            reward = info['score']
+            overall_score = info['score']
+            # reward normalised around the average score achieved to aid in learning
+            reward = (overall_score / 1000) - avg_reward
+            tot_reward += (overall_score / 1000)
+            avg_reward = (tot_reward / (episode + 1))
         else:
             reward = 0
 
