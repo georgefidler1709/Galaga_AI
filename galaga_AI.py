@@ -21,11 +21,6 @@ STATE_DIM_3 = env.observation_space.shape[2]
 ACTION_OUTPUT_DIM = env.action_space.n
 ACTION_DIM = 6
 
-LIFE_LOSS_PENALTY = 1.5
-GAME_OVER_PENALTY = 2.5
-SURVIVAL_REWARD = 2.5
-SCORE_MODIFIER = 150
-
 epsilon = INITIAL_EPSILON
 
 # ============================== Network ======================================
@@ -191,20 +186,15 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
         # print()
         next_state, _, done, info = env.step(action_input)
 
-        reward = (info['score'] - overall_score)/SCORE_MODIFIER
-        overall_score = info['score']
-
         if done:
             next_state = None
-            reward -= GAME_OVER_PENALTY
 
-        if t == MAX_STEPS:
+        if done or t == MAX_STEPS:
             # next_state = None
-            reward += SURVIVAL_REWARD
-
-        if info['lives'] != lives:
-          reward = reward + (info['lives'] - lives) * LIFE_LOSS_PENALTY
-          lives = info['lives']    
+            reward = info['score']
+        else:
+            reward = 0
+              
         add_step_to_memory((state, action, reward, next_state))
 
         # perform training update after collecting some experience
