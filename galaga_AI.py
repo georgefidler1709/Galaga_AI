@@ -58,7 +58,7 @@ with tf.variable_scope('primary'):
         inputs=state_in,
         filters=FILTERS1,
         kernel_size=FILTER_SIZE1,
-        activation=tf.nn.relu,
+        activation=tf.nn.elu,
         padding='VALID',
         strides=FILTER_STRIDE1
     )
@@ -68,7 +68,7 @@ with tf.variable_scope('primary'):
         inputs=conv1,
         filters=FILTERS2,
         kernel_size=FILTER_SIZE2,
-        activation=tf.nn.relu,
+        activation=tf.nn.elu,
         padding='VALID',
         strides=FILTER_STRIDE2
     )
