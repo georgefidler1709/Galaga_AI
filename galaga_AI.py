@@ -3,6 +3,9 @@ import retro
 import time
 import numpy as np
 import tensorflow as tf
+from skimage.color import rgb2gray
+from collections import deque
+
 env = retro.make(game='GalagaDemonsOfDeath-Nes', state='1Player.Level1', record='.')
 
 GAMMA = 0.999 # discount factor, between 0 and 1, used in Bellman eq
@@ -15,7 +18,7 @@ MAX_STEPS = 5000
 
 STATE_DIM_1 = env.observation_space.shape[0]
 STATE_DIM_2 = env.observation_space.shape[1]
-STATE_DIM_3 = env.observation_space.shape[2]
+STATE_DIM_3 = 4
 # ACTION_OUTPUT_DIM is the length of the vector given to the env as an action
 # ACTION_DIM is the largest meaningful action as a binary representation. Any higher will just duplicate an action represented by a lower number.
 ACTION_OUTPUT_DIM = env.action_space.n
@@ -114,6 +117,36 @@ session.run(tf.global_variables_initializer())
 # ============================== Code ======================================
 
 
+
+STACK_SIZE = STATE_DIM_3 # We stack 4 frames
+
+# Initialize deque with zero-images one array for each image
+stacked_frames  =  deque([np.zeros((STATE_DIM_1, STATE_DIM_2), dtype=np.int) for i in range(STACK_SIZE)], maxlen=STACK_SIZE)
+
+def stack_frames(stacked_frames, state, is_new_episode):
+    # Preprocess frame
+    frame = rgb2gray(state)
+    
+    if is_new_episode:
+        # Clear our stacked_frames
+        stacked_frames = deque([np.zeros((STATE_DIM_1, STATE_DIM_2), dtype=np.int) for i in range(STACK_SIZE)], maxlen=STACK_SIZE)
+        
+        # Because we're in a new episode, copy the same frame 4x
+        for i in range(STACK_SIZE):
+            stacked_frames.append(frame)
+        
+        # Stack the frames
+        stacked_state = np.stack(stacked_frames, axis=2)
+        
+    else:
+        # Append frame to deque, automatically removes the oldest frame
+        stacked_frames.append(frame)
+
+        # Build the stacked state (first dimension specifies different frames)
+        stacked_state = np.stack(stacked_frames, axis=2) 
+    
+    return stacked_state, stacked_frames
+
 def explore(state, epsilon):
     """
     Exploration function: given a state and an epsilon value,
@@ -141,7 +174,7 @@ def explore(state, epsilon):
     return one_hot_action
 
 BATCH_SIZE = 64
-MAX_MEM_SIZE = 30000 # WARNING prob want this to be smaller to be effective
+MAX_MEM_SIZE = 25000 # WARNING prob want this to be smaller to be effective
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
 UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
 
@@ -178,6 +211,7 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
             epsilon -= epsilon / EPSILON_DECAY_STEPS
 
     state = env.reset()
+    state, stacked_frames = stack_frames(stacked_frames, state, True)
 
     while t <= MAX_STEPS and not done:
         #env.render()
@@ -189,6 +223,7 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
         #time.sleep(10)
         # print()
         next_state, _, done, info = env.step(action_input)
+        next_state, stacked_frames = stack_frames(stacked_frames, next_state, False)
 
         if done:
             next_state = None
@@ -253,6 +288,7 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
 
     with open("log.txt", 'a') as log:
         log.write("attempt: %d, score: %d, epsilon: %.2lf\n" % (episode, overall_score, epsilon))
+        log.write("reward: %d, tot_reward: %d, avg_reward: %d\n" % (avg_reward, tot_reward, avg_reward))
         if episode % 5 == 0:
             save_path = saver.save(session, "./models/model_" + str(episode) +".ckpt")
             log.write("Model Saved: episode %d\n" % (episode))
