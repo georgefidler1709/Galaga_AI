@@ -5,13 +5,13 @@ import numpy as np
 import tensorflow as tf
 env = retro.make(game='GalagaDemonsOfDeath-Nes', state='1Player.Level1', record='.')
 
-GAMMA = 0.999 # discount factor, between 0 and 1, used in Bellman eq
+GAMMA = 0.9 # discount factor, between 0 and 1, used in Bellman eq
 INITIAL_EPSILON = 1 # starting value of epsilon, used in exploration
 FINAL_EPSILON = 0.01 # final value of epsilon
-EPSILON_DECAY_STEPS = 75 # decay period
+EPSILON_DECAY_STEPS = 500 # decay period
 FINAL_EPISODE = 300
 
-MAX_STEPS = 5000
+MAX_STEPS = 3000
 
 STATE_DIM_1 = env.observation_space.shape[0]
 STATE_DIM_2 = env.observation_space.shape[1]
@@ -31,9 +31,9 @@ action_in = tf.placeholder("float", [None, ACTION_DIM])
 target_in = tf.placeholder("float", [None])
 
 # --------- network hyperparameters ----------
-act = tf.tanh
+act = tf.nn.elu
 init = tf.glorot_uniform_initializer()
-lr=0.004
+lr=0.0003
 
 FILTER_SIZE1 = 16
 FILTERS1 = 16
@@ -126,14 +126,15 @@ def explore(state, epsilon):
     # print(np.argmax(Q_estimates))
     # print()   
 
+    Q_estimates = q_values.eval(feed_dict={
+        state_in: [state]
+    })
+    with open("log.txt", 'a') as log:
+        log.write(str(Q_estimates) + '\n')
+
     if random.random() <= epsilon:
         action = random.randint(0, ACTION_DIM - 1)
     else:
-        Q_estimates = q_values.eval(feed_dict={
-            state_in: [state]
-            })
-        with open("log.txt", 'a') as log:
-            log.write(str(Q_estimates) + '\n')
         action = np.argmax(Q_estimates)
 
     one_hot_action = np.zeros(ACTION_DIM)
@@ -143,7 +144,7 @@ def explore(state, epsilon):
 BATCH_SIZE = 64
 MAX_MEM_SIZE = 30000 # WARNING prob want this to be smaller to be effective
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
-UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
+UPDATE_FREQ = 3 # TODO tune this for higher to make more stable
 
 memory = []
 #save_scoring = [0] * MAX_MEM_SIZE
