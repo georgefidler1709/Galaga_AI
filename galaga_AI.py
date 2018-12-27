@@ -138,6 +138,7 @@ def explore(state, epsilon):
 
 BATCH_SIZE = 64
 MAX_MEM_SIZE = 30000 # WARNING prob want this to be smaller to be effective
+UNUSUAL_SAMPLE_PRIORITY = 0.99
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
 UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
 
@@ -149,14 +150,15 @@ def add_step_to_memory(state):
         memory.pop(0)
 
 # batch collection updated so that scoring states are prioritised over non-scoring states probabilistically
-def get_batch_from_memory():
-    buffer = sorted(memory, key=lambda replay: abs(replay[2]), reverse=True)
+def get_batch_from_memory(batch_size):
+    buffer = [(i, x) for i, x in enumerate(memory)]
+    buffer = sorted(buffer, key=lambda replay: abs(replay[1]), reverse=True)
     p = np.array([UNUSUAL_SAMPLE_PRIORITY ** i for i in range(len(memory))])
     p = p / sum(p)
-    sample_idxs = np.random.choice(np.arange(len(memory)),size=BATCH_SIZE, p=p, replace=False)
-    sample = [buffer[idx] for idx in sample_idxs]
+    sample_idxs = np.random.choice(np.arange(len(memory)),size=batch_size, p=p, replace=False)
+    sample = [memory[buffer[idx][0]] for idx in sample_idxs]
     return sample
-
+    
     # sample = random.sample(memory, batch_size)            
     # return sample
 
