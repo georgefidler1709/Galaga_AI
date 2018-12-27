@@ -8,7 +8,7 @@ env = retro.make(game='GalagaDemonsOfDeath-Nes', state='1Player.Level1', record=
 GAMMA = 0.9 # discount factor, between 0 and 1, used in Bellman eq
 INITIAL_EPSILON = 1 # starting value of epsilon, used in exploration
 FINAL_EPSILON = 0.01 # final value of epsilon
-EPSILON_DECAY_STEPS = 500 # decay period
+EPSILON_DECAY_STEPS = 60 # decay period
 FINAL_EPISODE = 300
 
 MAX_STEPS = 3000
@@ -33,7 +33,7 @@ target_in = tf.placeholder("float", [None])
 # --------- network hyperparameters ----------
 act = tf.nn.elu
 init = tf.glorot_uniform_initializer()
-lr=0.0003
+lr=0.0005
 
 FILTER_SIZE1 = 16
 FILTERS1 = 16
@@ -121,11 +121,6 @@ def explore(state, epsilon):
     take using e-greedy exploration based on the current q-value estimates.
     """
 
-
-    # print(Q_estimates)
-    # print(np.argmax(Q_estimates))
-    # print()   
-
     Q_estimates = q_values.eval(feed_dict={
         state_in: [state]
     })
@@ -144,25 +139,26 @@ def explore(state, epsilon):
 BATCH_SIZE = 64
 MAX_MEM_SIZE = 30000 # WARNING prob want this to be smaller to be effective
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
-UPDATE_FREQ = 3 # TODO tune this for higher to make more stable
+UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
 
 memory = []
-#save_scoring = [0] * MAX_MEM_SIZE
 # state is a tuple of (state, action, reward, next_state)
 def add_step_to_memory(state):
     memory.append(state)
     if(len(memory) > MAX_MEM_SIZE):
-        # to_remove = random.randint(0, MAX_MEM_SIZE - 1)
-        # while (memory[to_remove][2] != 0 and save_scoring[to_remove] == 0):
-        #     save_scoring[to_remove] = 1
-        #     to_remove = random.randint(0, MAX_MEM_SIZE - 1)
-        # save_scoring[to_remove] = 0
-        # memory.pop(to_remove)
         memory.pop(0)
 
-def get_batch_from_memory(batch_size):
-    sample = random.sample(memory, batch_size)            
+# batch collection updated so that scoring states are prioritised over non-scoring states probabilistically
+def get_batch_from_memory():
+    buffer = sorted(memory, key=lambda replay: abs(replay[2]), reverse=True)
+    p = np.array([UNUSUAL_SAMPLE_PRIORITY ** i for i in range(len(memory))])
+    p = p / sum(p)
+    sample_idxs = np.random.choice(np.arange(len(memory)),size=BATCH_SIZE, p=p, replace=False)
+    sample = [buffer[idx] for idx in sample_idxs]
     return sample
+
+    # sample = random.sample(memory, batch_size)            
+    # return sample
 
 saver = tf.train.Saver()
 
@@ -185,10 +181,6 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
         t += 1
         action = explore(state, epsilon)
         action_input = np.array(list(format(np.argmax(action), '0' + str(ACTION_OUTPUT_DIM) +'b')), dtype=np.float32)
-        # print("action = " + str(action))
-        # print("action-input = " + str(action_input))
-        #time.sleep(10)
-        # print()
         next_state, _, done, info = env.step(action_input)
 
         if done:
@@ -205,10 +197,12 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
         else:
             reward = 0
 
-        add_step_to_memory((state, action, reward, next_state))
+        # steps only added to memory if they are interesting or at set intervals to  promote a variety of samples in memory
+        if reward != 0 or done or (t % UPDATE_FREQ == 0):
+            add_step_to_memory((state, action, reward, next_state))
 
         # perform training update after collecting some experience
-        if (t != 0 and len(memory) > BATCH_SIZE) and (done or (t % UPDATE_FREQ == 0)):
+        if (episode != 0 and len(memory) > BATCH_SIZE) and (done or (t % UPDATE_FREQ == 0)):
             with open("log.txt", 'a') as log:
                 log.write("attempt = " + str(episode) + " t = " + str(t) + '\n')
             # sample random minibatch of transitions
@@ -232,10 +226,6 @@ while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
 
             for i, sample in enumerate(batch):
                 s_state, s_action, s_reward, s_next = sample[0], sample[1], sample[2], sample[3]
-                #print(t)
-                #print("s_reward = " + str(s_reward))
-                #print("next_q_max = " + str(next_state_q_values[i]))
-                #print()
 
                 if s_next is None:
                     targets[i] = s_reward
