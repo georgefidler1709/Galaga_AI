@@ -35,7 +35,7 @@ target_in = tf.placeholder("float", [None])
 # --------- network hyperparameters ----------
 act = tf.nn.elu
 init = tf.glorot_uniform_initializer()
-lr=0.0025
+lr=0.00025
 
 FILTER_SIZE1 = 8
 FILTERS1 = 32
