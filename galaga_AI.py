@@ -11,7 +11,7 @@ env = retro.make(game='GalagaDemonsOfDeath-Nes', state='1Player.Level1', record=
 GAMMA = 0.9 # discount factor, between 0 and 1, used in Bellman eq
 INITIAL_EPSILON = 1 # starting value of epsilon, used in exploration
 FINAL_EPSILON = 0.01 # final value of epsilon
-EPSILON_DECAY_STEPS = 100 # decay period
+EPSILON_DECAY_STEPS = 70 # decay period
 
 MAX_STEPS = 5000
 
@@ -21,7 +21,7 @@ STATE_DIM_3 = 4
 # ACTION_OUTPUT_DIM is the length of the vector given to the env as an action
 # ACTION_DIM is the largest meaningful action as a binary representation. Any higher will just duplicate an action represented by a lower number.
 ACTION_OUTPUT_DIM = env.action_space.n
-ACTION_DIM = 6
+ACTION_DIM = 3
 
 epsilon = INITIAL_EPSILON
 
@@ -242,8 +242,11 @@ while epsilon > FINAL_EPSILON:
         #env.render()
         t += 1
         action = explore(state, epsilon)
-        action_input = np.array(list(format(np.argmax(action), '0' + str(ACTION_OUTPUT_DIM) +'b')), dtype=np.float32)
-        next_state, _, done, info = env.step(action_input)
+        input_action = np.zeros(ACTION_OUTPUT_DIM)
+        # unique actions (LEFT, RIGHT, SHOOT) are mapped to the last 3 indices
+        # in the array of possible controller inputs.
+        input_action[ACTION_OUTPUT_DIM - ACTION_DIM + np.argmax(action)] = 1
+        next_state, _, done, info = env.step(action)
         next_state, stacked_frames = stack_frames(stacked_frames, next_state, False)
 
         if done or t == MAX_STEPS:
