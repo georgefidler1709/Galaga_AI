@@ -227,7 +227,7 @@ saver = tf.train.Saver()
 avg_reward_scaled = 0
 tot_reward_scaled = 0
 episode = 0
-while epsilon > FINAL_EPSILON and episode <= FINAL_EPISODE:
+while epsilon > FINAL_EPSILON:
     t = 0
     done = False
     overall_score = 0
