@@ -246,7 +246,7 @@ while epsilon > FINAL_EPSILON:
         # unique actions (LEFT, RIGHT, SHOOT) are mapped to the last 3 indices
         # in the array of possible controller inputs.
         input_action[ACTION_OUTPUT_DIM - ACTION_DIM + np.argmax(action)] = 1
-        next_state, _, done, info = env.step(action)
+        next_state, _, done, info = env.step(input_action)
         next_state, stacked_frames = stack_frames(stacked_frames, next_state, False)
 
         if done or t == MAX_STEPS:
@@ -295,11 +295,14 @@ while epsilon > FINAL_EPSILON:
                     targets[i] = s_reward + GAMMA * np.max(next_state_q_values[i])
 
             # Do one training step
-            session.run([optimizer], feed_dict={
+            loss_val, _ = session.run([loss, optimizer], feed_dict={
                 target_in: targets,
                 action_in: batch_actions,
                 state_in: batch_states
             })
+
+            with open("log.txt", 'a') as log:
+                log.write("loss = %.4lf\n" % loss_val)
 
         # Update
         state = next_state
