@@ -12,6 +12,7 @@ GAMMA = 0.9 # discount factor, between 0 and 1, used in Bellman eq
 INITIAL_EPSILON = 1 # starting value of epsilon, used in exploration
 FINAL_EPSILON = 0.01 # final value of epsilon
 EPSILON_DECAY_STEPS = 70 # decay period
+TARGET_UPDATE_FREQ = 50
 
 MAX_STEPS = 5000
 
@@ -26,11 +27,6 @@ ACTION_DIM = 3
 epsilon = INITIAL_EPSILON
 
 # ============================== Network ======================================
-
-# --------- network inputs ----------
-state_in = tf.placeholder("float", [None, STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
-action_in = tf.placeholder("float", [None, ACTION_DIM])
-target_in = tf.placeholder("float", [None])
 
 # --------- network hyperparameters ----------
 act = tf.nn.elu
@@ -54,9 +50,13 @@ POOL_STRIDE = 2
 
 fc1_units = 512
 
+# --------- network inputs ----------
+state_in = tf.placeholder("float", [None, STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
+action_in = tf.placeholder("float", [None, ACTION_DIM])
+target_in = tf.placeholder("float", [None])
+
 # --------------------------------------------
 with tf.variable_scope('primary'):
-    print("state_in = " + str(state_in.shape))
     conv1 = tf.layers.conv2d(
         inputs=state_in,
         filters=FILTERS1,
@@ -66,7 +66,7 @@ with tf.variable_scope('primary'):
         strides=FILTER_STRIDE1,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    print("conv1 = " + str(conv1.shape))
+    #print("conv1 = " + str(conv1.shape))
 
     conv2 = tf.layers.conv2d(
         inputs=conv1,
@@ -77,7 +77,7 @@ with tf.variable_scope('primary'):
         strides=FILTER_STRIDE2,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    print("conv2 = " + str(conv2.shape))
+    #print("conv2 = " + str(conv2.shape))
 
     conv3 = tf.layers.conv2d(
         inputs=conv2,
@@ -88,7 +88,7 @@ with tf.variable_scope('primary'):
         strides=FILTER_STRIDE3,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    print("conv3 = " + str(conv2.shape))
+    #print("conv3 = " + str(conv2.shape))
 
     # pooled = tf.nn.max_pool(
     #     value=conv2,
@@ -127,11 +127,101 @@ with tf.variable_scope('primary'):
     loss = tf.reduce_sum(tf.square(target_in - q_action))
     optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss)
 
+# ============================== Target Network ======================================
+
+# --------- network inputs ----------
+state_in_t = tf.placeholder("float", [None, STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
+action_in_t = tf.placeholder("float", [None, ACTION_DIM])
+target_in_t = tf.placeholder("float", [None])
+
+# --------------------------------------------
+with tf.variable_scope('target'):
+    conv1_t = tf.layers.conv2d(
+        inputs=state_in_t,
+        filters=FILTERS1,
+        kernel_size=FILTER_SIZE1,
+        activation=tf.nn.elu,
+        padding='VALID',
+        strides=FILTER_STRIDE1,
+        kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
+    )
+    #print("conv1 = " + str(conv1.shape))
+
+    conv2_t = tf.layers.conv2d(
+        inputs=conv1_t,
+        filters=FILTERS2,
+        kernel_size=FILTER_SIZE2,
+        activation=tf.nn.elu,
+        padding='VALID',
+        strides=FILTER_STRIDE2,
+        kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
+    )
+    #print("conv2 = " + str(conv2.shape))
+
+    conv3_t = tf.layers.conv2d(
+        inputs=conv2_t,
+        filters=FILTERS3,
+        kernel_size=FILTER_SIZE3,
+        activation=tf.nn.elu,
+        padding='VALID',
+        strides=FILTER_STRIDE3,
+        kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
+    )
+    #print("conv3 = " + str(conv2.shape))
+
+    # pooled = tf.nn.max_pool(
+    #     value=conv2,
+    #     ksize=[1, POOL_FILTER_SIZE, POOL_FILTER_SIZE, 1],
+    #     strides=[1, POOL_STRIDE, POOL_STRIDE, 1],
+    #     padding='SAME'
+    #     )
+    # print("pooled = " + str(pooled.shape))
+    # fc2 = tf.layers.dense(fc1, fc2_units, activation=act, kernel_initializer=init)
+    # fc3 = tf.layers.dense(fc2, fc2_units, activation=tf.nn.relu, kernel_initializer=tf.truncated_normal_initializer(stddev=0.1))
+
+    done_conv_t = tf.layers.flatten(conv3_t)
+    #done_conv = tf.layers.flatten(pooled)
+    # done_fc1 = tf.reshape(tensor=fc1, shape= [-1, STATE_DIM_1 * STATE_DIM_2 * fc1_units])
+
+    fc1_t = tf.layers.dense(done_conv_t, fc1_units, activation=act, kernel_initializer=init)
+    #print("fc1 = " + str(fc1.shape))
+
+    # TODO: Network outputs
+    # output a q-value for EACH possible action, rank-1 tensor of length ACTION_DIM
+
+    #q_values = tf.layers.dense(done_conv, ACTION_DIM, kernel_initializer=init) # linear activation
+    q_values_t = tf.layers.dense(fc1_t, ACTION_DIM, activation=None, kernel_initializer=init) # linear activation
+
+    # extract the q-value of the action in action_in
+    # by using action_in as a mask
+    ones_t = tf.ones_like(action_in_t)
+    action_bool_t = action_in_t >= ones_t
+    action_bool_t = tf.cast(action_bool_t, dtype=tf.float32) 
+    # print("q_values = " + str(q_values.get_shape()))
+    # print("action_bool = " + str(action_bool.get_shape()))
+    q_action_t = tf.reduce_sum(tf.multiply(action_bool_t, q_values_t), reduction_indices=1)
+
+    # TODO: Loss/Optimizer Definition
+    # should be a function of target_in and q_action
+    loss_t = tf.reduce_sum(tf.square(target_in_t - q_action_t))
+    optimizer_t = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss_t)
+
 # Start session - Tensorflow housekeeping
 session = tf.InteractiveSession()
 session.run(tf.global_variables_initializer())
 
+trainables_primary = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='primary')
+trainables_target = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target')
+
+# make sure 2 nets are the same
+assert len(trainables_primary) == len(trainables_target)
+
 # ============================== Code ======================================
+
+
+def update_target():
+    session.run([var_t.assign(var) for var_t, var in zip(trainables_target, trainables_primary)])
+
 
 #https://github.com/simoninithomas/Deep_reinforcement_learning_Course/blob/master/Deep%20Q%20Learning/Space%20Invaders/DQN%20Atari%20Space%20Invaders.ipynb
 def preprocess_frame(frame):
@@ -140,8 +230,8 @@ def preprocess_frame(frame):
     # Crop the screen to get rid of player information
     # [Up: Down, Left: right]
     cropped_frame = grey[8:-1,4:-48]
-    normalised_frame = cropped_frame/255.0
-    preprocessed_frame = transform.resize(normalised_frame, [STATE_DIM_1,STATE_DIM_2])
+    #normalised_frame = cropped_frame/255.0
+    preprocessed_frame = transform.resize(cropped_frame, [STATE_DIM_1,STATE_DIM_2])
     
     return preprocessed_frame # 110x84x1 frame
 
@@ -222,7 +312,7 @@ def get_batch_from_memory(batch_size):
     # sample = random.sample(memory, batch_size)            
     # return sample
 
-saver = tf.train.Saver()
+saver = tf.train.Saver(max_to_keep=10)
 
 avg_reward_scaled = 0
 tot_reward_scaled = 0
@@ -279,8 +369,12 @@ while epsilon > FINAL_EPSILON:
                 state_in: batch_states
             })
 
-            next_state_q_values = q_values.eval(feed_dict={
-                 state_in: batch_nexts
+            next_q_vals_primary = q_values.eval(feed_dict={
+                state_in: batch_nexts
+            })
+
+            next_q_vals_target = q_values_t.eval(feed_dict={
+                state_in_t: batch_nexts
             })
 
             # prepare array inputs needed to optimize
@@ -289,10 +383,11 @@ while epsilon > FINAL_EPSILON:
             for i, sample in enumerate(batch):
                 s_state, s_action, s_reward, s_next = sample[0], sample[1], sample[2], sample[3]
 
-                if s_next is None:
+                if s_next is np.array(np.zeros([STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])):
                     targets[i] = s_reward
                 else:
-                    targets[i] = s_reward + GAMMA * np.max(next_state_q_values[i])
+                    prim_action = np.argmax(next_q_vals_primary[i])
+                    targets[i] = s_reward + GAMMA * next_q_vals_target[i][prim_action]
 
             # Do one training step
             loss_val, _ = session.run([loss, optimizer], feed_dict={
@@ -303,6 +398,9 @@ while epsilon > FINAL_EPSILON:
 
             with open("log.txt", 'a') as log:
                 log.write("loss = %.4lf\n" % loss_val)
+
+        if t % TARGET_UPDATE_FREQ == 0 and t != 0:
+            update_target()
 
         # Update
         state = next_state
