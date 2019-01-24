@@ -11,13 +11,14 @@ env = retro.make(game='GalagaDemonsOfDeath-Nes', state='1Player.Level1', record=
 GAMMA = 0.9 # discount factor, between 0 and 1, used in Bellman eq
 INITIAL_EPSILON = 1 # starting value of epsilon, used in exploration
 FINAL_EPSILON = 0.01 # final value of epsilon
-EPSILON_DECAY_STEPS = 70 # decay period
-TARGET_UPDATE_FREQ = 50
+EPSILON_DECAY_STEPS = 50 # decay period
+TARGET_UPDATE_FREQ = 10 # Frequency at which the Target Network is updated
 
-MAX_STEPS = 5000
+MAX_STEPS = 4000 # Max length of an episode
 
-STATE_DIM_1 = 110
-STATE_DIM_2 = 84
+# Dimensions we reduce the input image down to to simplify training
+STATE_DIM_1 = 112
+STATE_DIM_2 = 120
 STATE_DIM_3 = 4
 # ACTION_OUTPUT_DIM is the length of the vector given to the env as an action
 # ACTION_DIM is the largest meaningful action as a binary representation. Any higher will just duplicate an action represented by a lower number.
@@ -26,7 +27,9 @@ ACTION_DIM = 3
 
 epsilon = INITIAL_EPSILON
 
-# ============================== Network ======================================
+# ============================== Primary Network ======================================
+
+# Uses 3 convoltionary layers and 2 feed-forward layers
 
 # --------- network hyperparameters ----------
 act = tf.nn.elu
@@ -66,7 +69,6 @@ with tf.variable_scope('primary'):
         strides=FILTER_STRIDE1,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    #print("conv1 = " + str(conv1.shape))
 
     conv2 = tf.layers.conv2d(
         inputs=conv1,
@@ -77,7 +79,6 @@ with tf.variable_scope('primary'):
         strides=FILTER_STRIDE2,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    #print("conv2 = " + str(conv2.shape))
 
     conv3 = tf.layers.conv2d(
         inputs=conv2,
@@ -88,29 +89,10 @@ with tf.variable_scope('primary'):
         strides=FILTER_STRIDE3,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    #print("conv3 = " + str(conv2.shape))
 
-    # pooled = tf.nn.max_pool(
-    #     value=conv2,
-    #     ksize=[1, POOL_FILTER_SIZE, POOL_FILTER_SIZE, 1],
-    #     strides=[1, POOL_STRIDE, POOL_STRIDE, 1],
-    #     padding='SAME'
-    #     )
-    # print("pooled = " + str(pooled.shape))
-    # fc2 = tf.layers.dense(fc1, fc2_units, activation=act, kernel_initializer=init)
-    # fc3 = tf.layers.dense(fc2, fc2_units, activation=tf.nn.relu, kernel_initializer=tf.truncated_normal_initializer(stddev=0.1))
-
+    # reduce dimensionality for feedforward network
     done_conv = tf.layers.flatten(conv3)
-    #done_conv = tf.layers.flatten(pooled)
-    # done_fc1 = tf.reshape(tensor=fc1, shape= [-1, STATE_DIM_1 * STATE_DIM_2 * fc1_units])
-
     fc1 = tf.layers.dense(done_conv, fc1_units, activation=act, kernel_initializer=init)
-    #print("fc1 = " + str(fc1.shape))
-
-    # TODO: Network outputs
-    # output a q-value for EACH possible action, rank-1 tensor of length ACTION_DIM
-
-    #q_values = tf.layers.dense(done_conv, ACTION_DIM, kernel_initializer=init) # linear activation
     q_values = tf.layers.dense(fc1, ACTION_DIM, activation=None, kernel_initializer=init) # linear activation
 
     # extract the q-value of the action in action_in
@@ -118,16 +100,13 @@ with tf.variable_scope('primary'):
     ones = tf.ones_like(action_in)
     action_bool = action_in >= ones
     action_bool = tf.cast(action_bool, dtype=tf.float32) 
-    # print("q_values = " + str(q_values.get_shape()))
-    # print("action_bool = " + str(action_bool.get_shape()))
     q_action = tf.reduce_sum(tf.multiply(action_bool, q_values), reduction_indices=1)
 
-    # TODO: Loss/Optimizer Definition
-    # should be a function of target_in and q_action
     loss = tf.reduce_sum(tf.square(target_in - q_action))
     optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss)
 
 # ============================== Target Network ======================================
+# Mirror of the primary network, use for doubleDQN
 
 # --------- network inputs ----------
 state_in_t = tf.placeholder("float", [None, STATE_DIM_1, STATE_DIM_2, STATE_DIM_3])
@@ -145,7 +124,6 @@ with tf.variable_scope('target'):
         strides=FILTER_STRIDE1,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    #print("conv1 = " + str(conv1.shape))
 
     conv2_t = tf.layers.conv2d(
         inputs=conv1_t,
@@ -156,7 +134,6 @@ with tf.variable_scope('target'):
         strides=FILTER_STRIDE2,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    #print("conv2 = " + str(conv2.shape))
 
     conv3_t = tf.layers.conv2d(
         inputs=conv2_t,
@@ -167,42 +144,16 @@ with tf.variable_scope('target'):
         strides=FILTER_STRIDE3,
         kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
     )
-    #print("conv3 = " + str(conv2.shape))
-
-    # pooled = tf.nn.max_pool(
-    #     value=conv2,
-    #     ksize=[1, POOL_FILTER_SIZE, POOL_FILTER_SIZE, 1],
-    #     strides=[1, POOL_STRIDE, POOL_STRIDE, 1],
-    #     padding='SAME'
-    #     )
-    # print("pooled = " + str(pooled.shape))
-    # fc2 = tf.layers.dense(fc1, fc2_units, activation=act, kernel_initializer=init)
-    # fc3 = tf.layers.dense(fc2, fc2_units, activation=tf.nn.relu, kernel_initializer=tf.truncated_normal_initializer(stddev=0.1))
 
     done_conv_t = tf.layers.flatten(conv3_t)
-    #done_conv = tf.layers.flatten(pooled)
-    # done_fc1 = tf.reshape(tensor=fc1, shape= [-1, STATE_DIM_1 * STATE_DIM_2 * fc1_units])
+	fc1_t = tf.layers.dense(done_conv_t, fc1_units, activation=act, kernel_initializer=init)
 
-    fc1_t = tf.layers.dense(done_conv_t, fc1_units, activation=act, kernel_initializer=init)
-    #print("fc1 = " + str(fc1.shape))
-
-    # TODO: Network outputs
-    # output a q-value for EACH possible action, rank-1 tensor of length ACTION_DIM
-
-    #q_values = tf.layers.dense(done_conv, ACTION_DIM, kernel_initializer=init) # linear activation
-    q_values_t = tf.layers.dense(fc1_t, ACTION_DIM, activation=None, kernel_initializer=init) # linear activation
-
-    # extract the q-value of the action in action_in
-    # by using action_in as a mask
+    q_values_t = tf.layers.dense(fc1_t, ACTION_DIM, activation=None, kernel_initializer=init)
     ones_t = tf.ones_like(action_in_t)
     action_bool_t = action_in_t >= ones_t
     action_bool_t = tf.cast(action_bool_t, dtype=tf.float32) 
-    # print("q_values = " + str(q_values.get_shape()))
-    # print("action_bool = " + str(action_bool.get_shape()))
     q_action_t = tf.reduce_sum(tf.multiply(action_bool_t, q_values_t), reduction_indices=1)
 
-    # TODO: Loss/Optimizer Definition
-    # should be a function of target_in and q_action
     loss_t = tf.reduce_sum(tf.square(target_in_t - q_action_t))
     optimizer_t = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss_t)
 
@@ -218,11 +169,11 @@ assert len(trainables_primary) == len(trainables_target)
 
 # ============================== Code ======================================
 
-
+# Update the target network to the current state of the primary network
 def update_target():
     session.run([var_t.assign(var) for var_t, var in zip(trainables_target, trainables_primary)])
 
-
+# Preprocess the image frame before it is fed to the network.
 #https://github.com/simoninithomas/Deep_reinforcement_learning_Course/blob/master/Deep%20Q%20Learning/Space%20Invaders/DQN%20Atari%20Space%20Invaders.ipynb
 def preprocess_frame(frame):
     # Greyscale frame 
@@ -235,7 +186,8 @@ def preprocess_frame(frame):
     
     return preprocessed_frame # 110x84x1 frame
 
-
+# Stack frames across multiple timesteps before fed to the network to give it a concept of speed and direction
+# https://medium.freecodecamp.org/an-introduction-to-deep-q-learning-lets-play-doom-54d02d8017d8
 STACK_SIZE = STATE_DIM_3 # We stack 4 frames
 # Initialize deque with zero-images one array for each image
 stacked_frames  =  deque([np.zeros((STATE_DIM_1, STATE_DIM_2), dtype=np.int) for i in range(STACK_SIZE)], maxlen=STACK_SIZE)
@@ -274,8 +226,8 @@ def explore(state, epsilon):
     Q_estimates = q_values.eval(feed_dict={
         state_in: [state]
     })
-    with open("log.txt", 'a') as log:
-        log.write(str(Q_estimates) + '\n')
+   # with open("log.txt", 'a') as log:
+   #     log.write(str(Q_estimates) + '\n')
 
     if random.random() <= epsilon:
         action = random.randint(0, ACTION_DIM - 1)
@@ -286,11 +238,13 @@ def explore(state, epsilon):
     one_hot_action[action] = 1
     return one_hot_action
 
-BATCH_SIZE = 64
-MAX_MEM_SIZE = 20000 # WARNING prob want this to be smaller to be effective
+# Experience Replay
+
+BATCH_SIZE = 16
+MAX_MEM_SIZE = 12000 # WARNING prob want this to be smaller to be effective
 UNUSUAL_SAMPLE_PRIORITY = 0.99
 TUPLE_DIM = 4 # each sample is a tuple of (state, action, reward, next_state)
-UPDATE_FREQ = 5 # TODO tune this for higher to make more stable
+UPDATE_FREQ = 1 # TODO tune this for higher to make more stable
 
 memory = []
 # state is a tuple of (state, action, reward, next_state)
@@ -308,20 +262,21 @@ def get_batch_from_memory(batch_size):
     sample_idxs = np.random.choice(np.arange(len(memory)),size=batch_size, p=p, replace=False)
     sample = [memory[buffer[idx][0]] for idx in sample_idxs]
     return sample
-    
-    # sample = random.sample(memory, batch_size)            
-    # return sample
 
-saver = tf.train.Saver(max_to_keep=10)
+saver = tf.train.Saver(max_to_keep=5)
+
+# Training steps
 
 avg_reward_scaled = 0
 tot_reward_scaled = 0
 episode = 0
 while epsilon > FINAL_EPSILON:
-    t = 0
-    done = False
-    overall_score = 0
+    t = 0 # current timestep
+    lives = 2 # number of lives
+    done = False # if the game has finished
+    overall_score = 0 # score agent has achieved over the episode
 
+    # epsilon decay
     if epsilon > FINAL_EPSILON and episode != 0:
             epsilon -= epsilon / EPSILON_DECAY_STEPS
 
@@ -331,6 +286,8 @@ while epsilon > FINAL_EPSILON:
     while t <= MAX_STEPS and not done:
         #env.render()
         t += 1
+        reward  = 0
+
         action = explore(state, epsilon)
         input_action = np.zeros(ACTION_OUTPUT_DIM)
         # unique actions (LEFT, RIGHT, SHOOT) are mapped to the last 3 indices
@@ -339,19 +296,21 @@ while epsilon > FINAL_EPSILON:
         next_state, _, done, info = env.step(input_action)
         next_state, stacked_frames = stack_frames(stacked_frames, next_state, False)
 
+        # minute intermediate reward is given to the agent for scoring points and gaining a life
+        reward += (info['score'] - overall_score) / 10000
+        reward += (info['lives'] - lives) / 10
+        overall_score = info['score']
+        lives = info['lives']
+
         if done or t == MAX_STEPS:
             next_state = np.array(np.zeros([STATE_DIM_1, STATE_DIM_2, STATE_DIM_3]))
-            # reward based solely on final score achieved in this episode
-            overall_score = info['score']
             # reward normalised around the average score achieved to aid in learning
-            reward = np.tanh((overall_score / 1000) - avg_reward_scaled)
+            reward += (overall_score / 1000) - avg_reward_scaled
             tot_reward_scaled += (overall_score / 1000)
             avg_reward_scaled = (tot_reward_scaled / (episode + 1))
-        else:
-            reward = 0
 
-        # steps only added to memory if they are interesting or at set intervals to  promote a variety of samples in memory
-        #if reward != 0 or done or (t % UPDATE_FREQ == 0):
+        reward = np.tanh(reward)
+
         add_step_to_memory((state, action, reward, next_state))
 
         # perform training update after collecting some experience
@@ -404,11 +363,11 @@ while epsilon > FINAL_EPSILON:
 
         # Update
         state = next_state
-
+    # write to log after each episode
     with open("log.txt", 'a') as log:
         log.write("attempt: %d, score: %d, epsilon: %.2lf\n" % (episode, overall_score, epsilon))
         log.write("reward: %d, tot_reward: %d, avg_reward: %d\n" % (reward, tot_reward_scaled, avg_reward_scaled))
-        if episode % 5 == 0:
+        if episode % 5 == 0 and episode != 0:
             save_path = saver.save(session, "./models/model_" + str(episode) +".ckpt")
             log.write("Model Saved: episode %d\n" % (episode))
     episode += 1
